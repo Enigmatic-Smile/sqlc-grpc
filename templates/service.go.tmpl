@@ -7,7 +7,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log/slog"
+	"github.com/Enigmatic-Smile/go-common/logger"
+	"go.uber.org/zap"
 	"net"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ type Service struct {
     pb.Unimplemented{{ .Package | PascalCase}}ServiceServer
 	querier {{if .EmitInterface}}Querier{{else}}*Queries{{end}}
 	{{if .EmitDbArgument}}db {{if eq .SqlPackage "database/sql"}}*sql.DB{{else}}*pgxpool.Pool{{end}}{{end}}
+	logger *logger.Logger
 }
 
 {{$emitDbArgument := .EmitDbArgument}}
@@ -34,7 +36,7 @@ func (s *Service) {{.Name | UpperFirstCharacter}}(ctx context.Context, req *pb.{
 	{{end}}
 	{{if not .EmptyOutput}}result, {{end}}err := s.querier.{{ .Name}}(ctx{{if $emitDbArgument}}, s.db{{end}}{{ .ParamsCallDatabase}})
 	if err != nil {
-		slog.Error("{{.Name}} sql call failed", "error", err)			
+		s.logger.Error(ctx, "{{.Name}} sql call failed", zap.Error(err))
 		return nil, err
 	}
 	{{ range . | Output}}{{ .}}

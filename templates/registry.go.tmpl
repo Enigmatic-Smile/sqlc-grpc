@@ -5,6 +5,7 @@ package main
 import (
     "context"
     "database/sql"
+	"github.com/Enigmatic-Smile/go-common/logger"
 
     "github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -15,9 +16,9 @@ import (
 	{{end}}
 )
 
-func registerServer(db {{if eq .SqlPackage "pgx/v5"}}*pgxpool.Pool{{else}}*sql.DB{{end}}) server.RegisterServer {
+func registerServer(db {{if eq .SqlPackage "pgx/v5"}}*pgxpool.Pool{{else}}*sql.DB{{end}}, logger *logger.Logger) server.RegisterServer {
     return func(grpcServer *grpc.Server) {
-        {{range .Packages}}pb_{{.Package}}.Register{{ .Package | PascalCase}}ServiceServer(grpcServer, app_{{.Package}}.NewService(app_{{.Package}}.New({{if not .EmitDbArgument}}db{{end}}), db))
+        {{range .Packages}}pb_{{.Package}}.Register{{ .Package | PascalCase}}ServiceServer(grpcServer, app_{{.Package}}.NewService(app_{{.Package}}.New({{if not .EmitDbArgument}}db{{end}}), db, logger))
         {{end}}
     }
 }

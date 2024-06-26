@@ -3,6 +3,7 @@
 package {{.Package}}
 
 import (
+	"github.com/Enigmatic-Smile/go-common/logger"
 	"database/sql"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,6 +13,6 @@ import (
 
 // NewService is a constructor of a pb.{{ .Package | PascalCase}}ServiceServer implementation.
 // Use this function to customize the server by adding middlewares to it.
-func NewService(querier {{if .EmitInterface}}Querier{{else}}*Queries{{end}}, db {{if eq .SqlPackage "database/sql"}}*sql.DB{{else}}*pgxpool.Pool{{end}}) pb.{{ .Package | PascalCase}}ServiceServer {
-	return &Service{querier: querier{{if .EmitDbArgument}}, db: db{{end}}}
+func NewService(querier {{if .EmitInterface}}Querier{{else}}*Queries{{end}}, db {{if eq .SqlPackage "database/sql"}}*sql.DB{{else}}*pgxpool.Pool{{end}}, logger *logger.Logger) pb.{{ .Package | PascalCase}}ServiceServer {
+	return &Service{querier: querier{{if .EmitDbArgument}}, db: db{{end}}, logger: logger}
 }

@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	_ "embed"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,187 +16,165 @@ import (
 	"syscall"
 	"time"
 
+    "go.opentelemetry.io/otel/metric"
+    "go.opentelemetry.io/otel/trace"
+    "github.com/Enigmatic-Smile/go-common/coreservicefx"
+	"github.com/Enigmatic-Smile/go-common/logger"
+	"github.com/Enigmatic-Smile/go-common/types"
 	"github.com/exaring/otelpgx"
 	"github.com/flowchartsman/swaggerui"
+	"github.com/JamesArthurHolland/ezenv"
 	"github.com/XSAM/otelsql"
 	semconv "go.opentelemetry.io/otel/semconv/v1.23.0"
-	"go.uber.org/automaxprocs/maxprocs"
+	"go.uber.org/fx"
 	// database driver
 	_ "{{ .DatabaseImport}}"
 	{{if .MigrationPath}}{{if eq .SqlPackage "pgx/v5"}}_ "github.com/jackc/pgx/v5/stdlib"{{end}}{{end}}
 
 	{{range .Packages}}app_{{.Package}} "{{ .GoModule}}/{{.SrcPath}}"
 	{{end}}	"{{ .GoModule}}/internal/server"
-	"{{ .GoModule}}/internal/server/litefs"
-	"{{ .GoModule}}/internal/server/litestream"
-	"{{ .GoModule}}/internal/server/instrumentation/trace"
+	"{{ .GoModule}}/internal/server/instrumentation"
 )
 {{if .Args}}//go:generate {{ .Args}}{{end}}
-{{if .LiteFS}}
-const (
-	serviceName    = "{{ .GoModule}}"
-	forwardTimeout = 10 * time.Second
-){{else}}
-const serviceName = "{{ .GoModule}}"
-{{end}}
-var (
-	dbURL string
-	{{if .Litestream}}replicationURL string{{end}}
-	{{if .LiteFS}}litefsConfig   litefs.Config
-	liteFS         *litefs.LiteFS{{end}}
 
+var (
 	//go:embed api/apidocs.swagger.json
 	openAPISpec []byte
 )
 
+type DbUrl string
+type Port int
+type EnableCors string
+
+func NewDb(dbUrl DbUrl, tracerProvider trace.TracerProvider {{if ne .SqlPackage "pgx/v5"}}, meterProvider metric.MeterProvider{{end}}) ({{if eq .SqlPackage "pgx/v5"}}*pgxpool.Pool{{else}}*sql.DB{{end}}, error) {
+    {{- if eq .SqlPackage "pgx/v5"}}
+    dbCfg, err := pgxpool.ParseConfig(string(dbUrl))
+    if err != nil {
+        return nil, err
+    }
+
+    dbCfg.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTracerProvider(tracerProvider))
+
+    return pgxpool.NewWithConfig(context.Background(), dbCfg)
+    {{- else}}
+    db, err := otelsql.Open("{{ .DatabaseDriver}}", string(dbUrl), otelsql.WithAttributes(
+        {{if eq .Database "mysql"}}semconv.DBSystemMySQL{{else if eq .Database "sqlite"}}semconv.DBSystemSqlite{{else}}semconv.DBSystemPostgreSQL{{end}},
+    ))
+    if err != nil {
+        return nil, err
+    }
+
+    err = otelsql.RegisterDBStatsMetrics(db,
+        otelsql.WithAttributes(
+            {{if eq .Database "mysql"}}semconv.DBSystemMySQL{{else if eq .Database "sqlite"}}semconv.DBSystemSqlite{{else}}semconv.DBSystemPostgreSQL{{end}},
+        ),
+        otelsql.WithTracerProvider(tracerProvider),
+        otelsql.WithMeterProvider(meterProvider),
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    return db, nil
+    {{end}}
+}
+
+type Params struct {
+    fx.In
+
+    Logger *logger.Logger
+    Db {{if eq .SqlPackage "pgx/v5"}}*pgxpool.Pool{{else}}*sql.DB{{end}}
+    Port Port
+    ServiceName types.ServiceName
+    EnableCors EnableCors
+    MeterProvider metric.MeterProvider
+    TracerProvider trace.TracerProvider
+}
+
+type Result struct {
+    fx.Out
+
+    Service *Service
+    Start coreservicefx.StartFunc
+    Stop coreservicefx.StopFunc
+}
+
+type Service struct {
+    db {{if eq .SqlPackage "pgx/v5"}}*pgxpool.Pool{{else}}*sql.DB{{end}}
+    logger *logger.Logger
+    srv *server.Server
+    name string
+}
+
+func NewService(p Params) (Result, error) {
+    enableCors, err := strconv.ParseBool(string(p.EnableCors))
+    if err != nil {
+        return Result{}, err
+    }
+
+    cfg := server.Config{
+        ServiceName: string(p.ServiceName),
+        Port: int(p.Port),
+        EnableCors: enableCors,
+    }
+    srv := server.New(cfg, registerServer(p.Db, p.Logger), registerHandlers(), httpHandlers, p.MeterProvider, p.TracerProvider, p.Logger)
+
+    svc := &Service{
+        db: p.Db,
+        logger: p.Logger,
+        srv: srv,
+        name: string(p.ServiceName),
+    }
+
+    return Result{
+        Service: svc,
+        Start: svc.Start,
+        Stop: svc.Stop,
+    }, nil
+}
+
+func (s *Service) Start(ctx context.Context) error {
+    {{- if .MigrationPath}}{{if eq .SqlPackage "pgx/v5"}}
+    dbMigration, err := sql.Open("pgx", dbURL)
+    if err != nil {
+        return err
+    }
+    err = ensureSchema(dbMigration)
+    if err != nil { slog.Error("migration error", "error", err) }
+    dbMigration.Close()
+    {{- else}}
+    if err := ensureSchema(db); err != nil { slog.Error("migration error", "error", err) }{{end}}{{- end}}
+
+    go func() {
+        err := s.srv.ListenAndServe()
+        if err != nil && !errors.Is(err, http.ErrServerClosed) {
+            s.logger.Error(ctx, "Server start error", zap.Error(err))
+        }
+    }()
+    return nil
+}
+
+func (s *Service) Stop(ctx context.Context) error {
+    s.srv.Shutdown(ctx)
+    s.db.Close()
+    return nil
+}
+
 func main() {
-	cfg := server.Config{
-		ServiceName: serviceName,
-	}
-	var dev bool
-	flag.StringVar(&dbURL, "db", "", "The Database connection URL")
-	flag.IntVar(&cfg.Port, "port", 5000, "The server port")
-	{{if .Metric}}flag.IntVar(&cfg.PrometheusPort, "prometheus-port", 0, "The metrics server port"){{end}}
-	flag.BoolVar(&cfg.EnableCors, "cors", false, "Enable CORS middleware")
-	flag.BoolVar(&dev, "dev", false, "Set logger to development mode")
-	{{if .DistributedTracing}}flag.StringVar(&cfg.OtlpEndpoint, "otlp-endpoint", "", "The Open Telemetry Protocol Endpoint (example: localhost:4317)"){{end}}
-	{{if .Litestream}}flag.StringVar(&replicationURL, "replication", "", "S3 replication URL"){{end}}
-	{{if .LiteFS}}litefs.SetFlags(&litefsConfig){{end}}
-	flag.Parse()
+    diConfig := []fx.Option{
+        coreservicefx.ModuleFromEnv,
 
-	{{if .LiteFS}}dbURL = filepath.Join(litefsConfig.MountDir, dbURL){{end}}
+        fx.Provide(
+            ezenv.Provider[DbUrl],
+            ezenv.Provider[Port],
+            ezenv.Provider[EnableCors],
 
-	initLogger(dev)
-	if err := run(cfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("server error", "error", err)
-		os.Exit(1)
-	}
-}
+            NewService,
+            NewDb,
+        ),
+    }
 
-func run(cfg server.Config) error {
-	_, err := maxprocs.Set()
-	if err != nil {
-		slog.Warn("startup", "error", err)
-	}
-	slog.Info("startup", "GOMAXPROCS", runtime.GOMAXPROCS(0))
-
-	{{if .LiteFS}}
-	if litefsConfig.MountDir != "" {
-		err := litefsConfig.Validate()
-		if err != nil {
-			return fmt.Errorf("liteFS parameters validation: %w", err)
-		}
-
-		liteFS, err = litefs.Start(litefsConfig)
-		if err != nil {
-			return fmt.Errorf("cannot start LiteFS: %w", err)
-		}
-		defer liteFS.Close()
-
-		cfg.Middlewares = append(cfg.Middlewares, liteFS.ForwardToLeader(forwardTimeout, "POST", "PUT", "PATCH", "DELETE"))
-		cfg.Middlewares = append(cfg.Middlewares, liteFS.ConsistentReader(forwardTimeout, "GET"))
-
-		<-liteFS.ReadyCh()
-		slog.Info("LiteFS cluster is ready")
-	}
-	{{end}}
-
-	{{if .DistributedTracing}}
-	var db {{if eq .SqlPackage "pgx/v5"}}*pgxpool.Pool{{else}}*sql.DB{{end}}
-	if cfg.TracingEnabled() {
-		flush, err := trace.Init(context.Background(), serviceName, cfg.OtlpEndpoint)
-		if err != nil {
-			return err
-		}
-		defer flush()
-		{{if eq .SqlPackage "pgx/v5"}}
-		dbCfg, err := pgxpool.ParseConfig(dbURL)
-		if err != nil {
-    		return err
-		}
-		dbCfg.ConnConfig.Tracer = otelpgx.NewTracer()
-		db, err = pgxpool.NewWithConfig(context.Background(), dbCfg)
-		if err != nil {
-    		return err
-		}
-		{{else}}
-		db, err = otelsql.Open("{{ .DatabaseDriver}}", dbURL, otelsql.WithAttributes(
-			{{if eq .Database "mysql"}}semconv.DBSystemMySQL{{else if eq .Database "sqlite"}}semconv.DBSystemSqlite{{else}}semconv.DBSystemPostgreSQL{{end}},
-		))
-		if err != nil {			
-			return err
-		}
-
-		err = otelsql.RegisterDBStatsMetrics(db, otelsql.WithAttributes(
-			{{if eq .Database "mysql"}}semconv.DBSystemMySQL{{else if eq .Database "sqlite"}}semconv.DBSystemSqlite{{else}}semconv.DBSystemPostgreSQL{{end}},
-		))
-		if err != nil {
-			return err
-		}{{end}}
-	} else {
-	    {{if eq .SqlPackage "pgx/v5"}}db, err = pgxpool.New(context.Background(), dbURL)
-		{{else}}	
-		db, err = sql.Open("{{if eq .Database "mysql"}}mysql{{else if eq .Database "sqlite"}}sqlite3{{else}}pgx{{end}}", dbURL)
-		{{end}}if err != nil {
-			return err
-		}
-	}
-	defer db.Close()
-	{{else}}
-	{{if eq .SqlPackage "pgx/v5"}}
-		db, err := pgxpool.New(context.Background(), dbURL)
-	{{else}}
-	db, err := sql.Open("{{ .DatabaseDriver}}", dbURL)
-	{{end}}if err != nil {
-		return err
-	}
-	defer db.Close()
-	{{end}}
-	{{if .Litestream}}if replicationURL != "" {
-		slog.Info("litestream replication", "url", replicationURL)
-		lsdb, err := litestream.Replicate(context.Background(), dbURL, replicationURL)
-		if err != nil { return fmt.Errorf("init replication error: %w", err) }
-		defer lsdb.Close()
-	}
-	{{end -}}
-	{{if .MigrationPath}}{{if eq .SqlPackage "pgx/v5"}}
-	dbMigration, err := sql.Open("pgx", dbURL)
-	if err != nil {
-		return err
-	}
-	err = ensureSchema(dbMigration)
-	if err != nil { slog.Error("migration error", "error", err) }
-	dbMigration.Close()
-	{{else}}
-	if err := ensureSchema(db); err != nil { slog.Error("migration error", "error", err) }{{end}}{{end}}
-	srv := server.New(cfg, registerServer(db), registerHandlers(), httpHandlers)
-
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-done
-		slog.Warn("signal detected...", "signal", sig)
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		srv.Shutdown(ctx)
-	}()
-	return srv.ListenAndServe()
-}
-
-func initLogger(dev bool) {
-	var handler slog.Handler
-	opts := slog.HandlerOptions{
-		AddSource: true,
-	}
-	switch {
-	case dev:
-		handler = slog.NewTextHandler(os.Stderr, &opts)
-	default:
-		handler = slog.NewJSONHandler(os.Stderr, &opts)
-	}
-
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
+    fx.New(diConfig...).Run()
 }
 
 func httpHandlers(mux *http.ServeMux) {
@@ -205,8 +182,4 @@ func httpHandlers(mux *http.ServeMux) {
 		w.WriteHeader(200)
 	})
 	mux.Handle("/swagger/", http.StripPrefix("/swagger", swaggerui.Handler(openAPISpec)))
-
-	{{if .LiteFS}}if liteFS != nil {
-		mux.HandleFunc("/nodes/", liteFS.ForwardToLeaderFunc(liteFS.ClusterHandler, forwardTimeout, "POST", "DELETE"))
-	}{{end}}
 }

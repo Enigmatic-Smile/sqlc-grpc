@@ -4,7 +4,11 @@ package server
 
 import (
 	"context"
-	"log/slog"
+	"context"
+	"fmt"
+	"github.com/Enigmatic-Smile/go-common/logger"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
@@ -32,9 +36,9 @@ func (c Config) TracingEnabled() bool {
 	return c.OtlpEndpoint != ""
 }{{end}}
 
-func (c Config) grpcInterceptors() []grpc.UnaryServerInterceptor {
+func (c Config) grpcInterceptors(l *logger.Logger) []grpc.UnaryServerInterceptor {
 	interceptors := make([]grpc.UnaryServerInterceptor, 0)
-	interceptors = append(interceptors, logging.UnaryServerInterceptor(interceptorLogger(slog.Default()),
+	interceptors = append(interceptors, logging.UnaryServerInterceptor(interceptorLogger(l),
 		logging.WithDisableLoggingFields("protocol", "grpc.component", "grpc.method_type")))	
 	interceptors = append(interceptors, errorMapper)
 	interceptors = append(interceptors, recovery.UnaryServerInterceptor())
@@ -42,8 +46,36 @@ func (c Config) grpcInterceptors() []grpc.UnaryServerInterceptor {
 	return interceptors
 }
 
-func interceptorLogger(l *slog.Logger) logging.Logger {
+func interceptorLogger(l *logger.Logger) logging.Logger {
 	return logging.LoggerFunc(func(ctx context.Context, lvl logging.Level, msg string, fields ...any) {
-		l.Log(ctx, slog.Level(lvl), msg, fields...)
+		f := make([]zap.Field, 0)
+		if len(fields) >= 2 {
+			for i := 0; i < len(fields); i += 2 {
+				key, ok := fields[i].(string)
+				if !ok {
+					l.Warn(ctx, "key is not a string", zap.String("key", fmt.Sprintf("%v", key)))
+					continue
+				}
+
+				f = append(f, zap.Any(key, fields[i+1]))
+			}
+		}
+
+		l.Log(transformLevel(lvl), msg, f...)
 	})
+}
+
+func transformLevel(lvl logging.Level) zapcore.Level {
+	switch lvl {
+	case logging.LevelDebug:
+		return zapcore.DebugLevel
+	case logging.LevelInfo:
+		return zapcore.InfoLevel
+	case logging.LevelWarn:
+		return zapcore.WarnLevel
+	case logging.LevelError:
+		return zapcore.ErrorLevel
+	default:
+		return zapcore.InfoLevel
+	}
 }
