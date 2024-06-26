@@ -1,6 +1,6 @@
 ## sqlc-grpc
 
-## Enigmatic Smile Usage
+### Enigmatic Smile Usage
 
 - `go install .` from the root to get the tool installed into your GOPATH
 - Ensure GOPATH is on your PATH
