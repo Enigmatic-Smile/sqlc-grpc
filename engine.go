@@ -33,12 +33,6 @@ func process(def *metadata.Definition, outPath string, appendMode bool) error {
 				return nil
 			}
 
-			//if strings.HasSuffix(newPath, "trace") && !def.DistributedTracing {
-			//	return nil
-			//}
-			//if strings.HasSuffix(newPath, "metric") && !def.Metric {
-			//	return nil
-			//}
 			if strings.HasSuffix(newPath, "litestream") && !(def.Database() == "sqlite" && def.Litestream) {
 				return nil
 			}
