@@ -1,5 +1,16 @@
 ## sqlc-grpc
 
+### Enigmatic Smile Usage
+
+- `go install .` from the root to get the tool installed into your GOPATH
+- Ensure GOPATH is on your PATH
+- `go generate` in the repo you want to use the tool
+
+Alternatively you can create a run configuration to run this tool in a particular directory from within Goland. You can copy the `sqlc-grpc.xml.example` but the general steps are as follows:
+- Create a new go build configuration
+- Change run kind to directory and make sure it is this repos root
+- Change working directory to be the directory you want to run this tool in
+
 Create a **gRPC** (and **HTTP/JSON**) **Server** from the generated code by the awesome [sqlc](https://sqlc.dev/) project. If you’re searching for a SQLC plugin, use [sqlc-gen-go-server](https://github.com/walterwanderley/sqlc-gen-go-server/).
 
 ### Requirements

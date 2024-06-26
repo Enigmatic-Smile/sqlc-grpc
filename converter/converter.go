@@ -231,7 +231,7 @@ func BindToGo(src, dst, attrName, attrType string, newVar bool) []string {
 			res = append(res, fmt.Sprintf("var %s %s", dst, attrType))
 		}
 		res = append(res, fmt.Sprintf("if v := %s.Get%s(); v != nil {", src, CamelCaseProto(attrName)))
-		res = append(res, fmt.Sprintf("if err := json.Unmarshal([]byte(v), &%s); err != nil {", dst))
+		res = append(res, fmt.Sprintf("if err := json.Unmarshal([]byte(v.Value), &%s); err != nil {", dst))
 		res = append(res, fmt.Sprintf("err = fmt.Errorf(\"invalid %s: %%s%%w\", err.Error(), validation.ErrUserInput)", attrName))
 		res = append(res, "return nil, err }")
 		res = append(res, "}")
