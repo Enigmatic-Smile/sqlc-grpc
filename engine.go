@@ -29,10 +29,6 @@ func process(def *metadata.Definition, outPath string, appendMode bool) error {
 		newPath := strings.TrimSuffix(path, ".tmpl")
 
 		if d.IsDir() {
-			if strings.HasSuffix(newPath, "instrumentation") {
-				return nil
-			}
-
 			if strings.HasSuffix(newPath, "litestream") && !(def.Database() == "sqlite" && def.Litestream) {
 				return nil
 			}
