@@ -19,9 +19,11 @@ import (
 
 {{$emitParamsPointers := .EmitParamsPointers}}
 {{$emitResultPointers := .EmitResultPointers}}
-{{range .OutputAdapters}}
+{{range .Messages}}
+{{- if HasSuffix .Name "Response"}}{{continue}}{{end}}
+{{- if HasSuffix .Name "Params"}}{{continue}}{{end}}
 func to{{.Name}}(in {{if $emitResultPointers}}*{{end}}{{.Name}}) *pb.{{.Name | UpperFirstCharacter}} {
-    {{if $emitResultPointers}}if in == nil { return nil }{{end}}
+    {{- if $emitResultPointers}}if in == nil { return nil }{{end}}
     out := new(pb.{{.Name | UpperFirstCharacter}})
     {{range .AdapterToProto "in" "out"}}{{.}}
     {{end }}return out

@@ -129,12 +129,14 @@ func BindToProto(src, dst, attrName, attrType string) []string {
 		res = append(res, "}")
 	case "int16":
 		res = append(res, fmt.Sprintf("%s.%s = int32(%s.%s)", dst, CamelCaseProto(attrName), src, attrName))
+	case "string", "*string", "int64", "*int64", "bool", "*bool":
+		res = append(res, fmt.Sprintf("%s.%s = %s.%s", dst, CamelCaseProto(attrName), src, attrName))
 	default:
 		_, elementType := originalAndElementType(attrType)
 		if elementType != "" {
 			res = append(res, fmt.Sprintf("%s.%s = %s(%s.%s)", dst, CamelCaseProto(attrName), elementType, src, attrName))
 		} else {
-			res = append(res, fmt.Sprintf("%s.%s = %s.%s", dst, CamelCaseProto(attrName), src, attrName))
+			res = append(res, fmt.Sprintf("%s.%s = to%s(%s.%s)", dst, CamelCaseProto(attrName), attrName, src, attrName))
 		}
 	}
 	return res
