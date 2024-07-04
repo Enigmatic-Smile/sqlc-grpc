@@ -129,7 +129,7 @@ func BindToProto(src, dst, attrName, attrType string) []string {
 		res = append(res, "}")
 	case "int16":
 		res = append(res, fmt.Sprintf("%s.%s = int32(%s.%s)", dst, CamelCaseProto(attrName), src, attrName))
-	case "string", "*string", "int64", "*int64", "bool", "*bool":
+	case "string", "*string", "int64", "*int64", "bool", "*bool", "int", "*int", "int32", "*int32", "int8", "*int8", "float32", "*float32", "float64", "*float64":
 		res = append(res, fmt.Sprintf("%s.%s = %s.%s", dst, CamelCaseProto(attrName), src, attrName))
 	default:
 		_, elementType := originalAndElementType(attrType)
@@ -232,8 +232,8 @@ func BindToGo(src, dst, attrName, attrType string, newVar bool) []string {
 		if newVar {
 			res = append(res, fmt.Sprintf("var %s %s", dst, attrType))
 		}
-		res = append(res, fmt.Sprintf("if v := %s.Get%s(); v != nil {", src, CamelCaseProto(attrName)))
-		res = append(res, fmt.Sprintf("if err := json.Unmarshal([]byte(v.Value), &%s); err != nil {", dst))
+		res = append(res, fmt.Sprintf("if v := %s.Get%s(); v != \"\" {", src, CamelCaseProto(attrName)))
+		res = append(res, fmt.Sprintf("if err := json.Unmarshal([]byte(v), &%s); err != nil {", dst))
 		res = append(res, fmt.Sprintf("err = fmt.Errorf(\"invalid %s: %%s%%w\", err.Error(), validation.ErrUserInput)", attrName))
 		res = append(res, "return nil, err }")
 		res = append(res, "}")
@@ -268,7 +268,7 @@ func BindToGo(src, dst, attrName, attrType string, newVar bool) []string {
 		} else {
 			res = append(res, fmt.Sprintf("%s = uint16(%s.Get%s())", dst, src, CamelCaseProto(attrName)))
 		}
-	case "*string", "string", "*int64", "int64":
+	case "*string", "string", "*int64", "int64", "*bool":
 		if newVar {
 			res = append(res, fmt.Sprintf("%s := %s.%s", dst, src, CamelCaseProto(attrName)))
 		} else {
