@@ -39,7 +39,7 @@ func ExprToStr(e ast.Expr) (string, error) {
 
 func ToProtoType(typ string) string {
 	if strings.HasPrefix(typ, "*") {
-		return ToProtoType(typ[1:])
+		return fmt.Sprintf("optional %s", ToProtoType(typ[1:]))
 	}
 	if strings.HasPrefix(typ, "[]") && typ != "[]byte" {
 		return "repeated " + ToProtoType(typ[2:])
@@ -73,11 +73,11 @@ func ToProtoType(typ string) string {
 		return "google.protobuf.FloatValue"
 	case "sql.NullFloat64", "pgtype.Float8":
 		return "google.protobuf.DoubleValue"
-	case "sql.NullString", "pgtype.Text", "pgtype.UUID":
+	case "sql.NullString", "pgtype.Text":
 		return "google.protobuf.StringValue"
 	case "sql.NullTime", "time.Time", "pgtype.Date", "pgtype.Timestamp", "pgtype.Timestampz":
 		return "google.protobuf.Timestamp"
-	case "string", "uuid.UUID", "net.HardwareAddr", "net.IP":
+	case "string", "uuid.UUID", "pgtype.UUID", "net.HardwareAddr", "net.IP":
 		return "string"
 	case "sql.Result", "pgconn.CommandTag":
 		return "ExecResult"
@@ -125,7 +125,7 @@ func BindToProto(src, dst, attrName, attrType string) []string {
 		res = append(res, fmt.Sprintf("%s.%s = %s.%s.String()", dst, CamelCaseProto(attrName), src, attrName))
 	case "pgtype.UUID":
 		res = append(res, fmt.Sprintf("if v, err := json.Marshal(%s.%s); err == nil {", src, attrName))
-		res = append(res, fmt.Sprintf("%s.%s = wrapperspb.String(string(v))", dst, CamelCaseProto(attrName)))
+		res = append(res, fmt.Sprintf("%s.%s = string(v)", dst, CamelCaseProto(attrName)))
 		res = append(res, "}")
 	case "int16":
 		res = append(res, fmt.Sprintf("%s.%s = int32(%s.%s)", dst, CamelCaseProto(attrName), src, attrName))
@@ -265,6 +265,12 @@ func BindToGo(src, dst, attrName, attrType string, newVar bool) []string {
 			res = append(res, fmt.Sprintf("%s := uint16(%s.Get%s())", dst, src, CamelCaseProto(attrName)))
 		} else {
 			res = append(res, fmt.Sprintf("%s = uint16(%s.Get%s())", dst, src, CamelCaseProto(attrName)))
+		}
+	case "*string", "string", "*int64", "int64":
+		if newVar {
+			res = append(res, fmt.Sprintf("%s := %s.%s", dst, src, CamelCaseProto(attrName)))
+		} else {
+			res = append(res, fmt.Sprintf("%s = %s.%s", dst, src, CamelCaseProto(attrName)))
 		}
 	default:
 		originalType, elementType := originalAndElementType(attrType)
