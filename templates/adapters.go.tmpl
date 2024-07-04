@@ -19,7 +19,7 @@ import (
 
 {{$emitParamsPointers := .EmitParamsPointers}}
 {{$emitResultPointers := .EmitResultPointers}}
-{{range .Messages}}
+{{range .OutputAdapters}}
 func to{{.Name}}(in {{if $emitResultPointers}}*{{end}}{{.Name}}) *pb.{{.Name | UpperFirstCharacter}} {
     {{if $emitResultPointers}}if in == nil { return nil }{{end}}
     out := new(pb.{{.Name | UpperFirstCharacter}})
