@@ -2,7 +2,7 @@
 
 ### Enigmatic Smile Usage
 
-- `go install .` from the root to get the tool installed into your GOPATH
+- `./install.sh` from the root to get the tool installed into your GOPATH
 - Ensure GOPATH is on your PATH
 - `go generate` in the repo you want to use the tool
 
