@@ -21,7 +21,7 @@ plugins:
       - logtostderr=true
       - allow_merge=true
     strategy: all
-  - name: gotemplate
+  - name: esgotemplate
     out: api
     opt:
       - template_dir=../../templates/grpc_client_service_template
