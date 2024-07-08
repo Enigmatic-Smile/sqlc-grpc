@@ -20,4 +20,9 @@ plugins:
       - generate_unbound_methods=true
       - logtostderr=true
       - allow_merge=true
-    strategy: all    
+    strategy: all
+  - name: gotemplate
+    out: api
+    opt:
+      - template_dir=../../templates/grpc_client_service_template
+    strategy: directory
