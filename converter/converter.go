@@ -39,7 +39,7 @@ func ExprToStr(e ast.Expr) (string, error) {
 
 func ToProtoType(typ string) string {
 	if strings.HasPrefix(typ, "*") {
-		return ToProtoType(typ[1:])
+		return fmt.Sprintf("optional %s", ToProtoType(typ[1:]))
 	}
 	if strings.HasPrefix(typ, "[]") && typ != "[]byte" {
 		return "repeated " + ToProtoType(typ[2:])
@@ -73,11 +73,11 @@ func ToProtoType(typ string) string {
 		return "google.protobuf.FloatValue"
 	case "sql.NullFloat64", "pgtype.Float8":
 		return "google.protobuf.DoubleValue"
-	case "sql.NullString", "pgtype.Text", "pgtype.UUID":
+	case "sql.NullString", "pgtype.Text":
 		return "google.protobuf.StringValue"
 	case "sql.NullTime", "time.Time", "pgtype.Date", "pgtype.Timestamp", "pgtype.Timestampz":
 		return "google.protobuf.Timestamp"
-	case "string", "uuid.UUID", "net.HardwareAddr", "net.IP":
+	case "string", "uuid.UUID", "pgtype.UUID", "net.HardwareAddr", "net.IP":
 		return "string"
 	case "sql.Result", "pgconn.CommandTag":
 		return "ExecResult"
@@ -125,16 +125,18 @@ func BindToProto(src, dst, attrName, attrType string) []string {
 		res = append(res, fmt.Sprintf("%s.%s = %s.%s.String()", dst, CamelCaseProto(attrName), src, attrName))
 	case "pgtype.UUID":
 		res = append(res, fmt.Sprintf("if v, err := json.Marshal(%s.%s); err == nil {", src, attrName))
-		res = append(res, fmt.Sprintf("%s.%s = wrapperspb.String(string(v))", dst, CamelCaseProto(attrName)))
+		res = append(res, fmt.Sprintf("%s.%s = string(v)", dst, CamelCaseProto(attrName)))
 		res = append(res, "}")
 	case "int16":
 		res = append(res, fmt.Sprintf("%s.%s = int32(%s.%s)", dst, CamelCaseProto(attrName), src, attrName))
+	case "string", "*string", "int64", "*int64", "bool", "*bool", "int", "*int", "int32", "*int32", "int8", "*int8", "float32", "*float32", "float64", "*float64":
+		res = append(res, fmt.Sprintf("%s.%s = %s.%s", dst, CamelCaseProto(attrName), src, attrName))
 	default:
 		_, elementType := originalAndElementType(attrType)
 		if elementType != "" {
 			res = append(res, fmt.Sprintf("%s.%s = %s(%s.%s)", dst, CamelCaseProto(attrName), elementType, src, attrName))
 		} else {
-			res = append(res, fmt.Sprintf("%s.%s = %s.%s", dst, CamelCaseProto(attrName), src, attrName))
+			res = append(res, fmt.Sprintf("%s.%s = to%s(%s.%s)", dst, CamelCaseProto(attrName), attrName, src, attrName))
 		}
 	}
 	return res
@@ -230,8 +232,8 @@ func BindToGo(src, dst, attrName, attrType string, newVar bool) []string {
 		if newVar {
 			res = append(res, fmt.Sprintf("var %s %s", dst, attrType))
 		}
-		res = append(res, fmt.Sprintf("if v := %s.Get%s(); v != nil {", src, CamelCaseProto(attrName)))
-		res = append(res, fmt.Sprintf("if err := json.Unmarshal([]byte(v.Value), &%s); err != nil {", dst))
+		res = append(res, fmt.Sprintf("if v := %s.Get%s(); v != \"\" {", src, CamelCaseProto(attrName)))
+		res = append(res, fmt.Sprintf("if err := json.Unmarshal([]byte(v), &%s); err != nil {", dst))
 		res = append(res, fmt.Sprintf("err = fmt.Errorf(\"invalid %s: %%s%%w\", err.Error(), validation.ErrUserInput)", attrName))
 		res = append(res, "return nil, err }")
 		res = append(res, "}")
@@ -265,6 +267,12 @@ func BindToGo(src, dst, attrName, attrType string, newVar bool) []string {
 			res = append(res, fmt.Sprintf("%s := uint16(%s.Get%s())", dst, src, CamelCaseProto(attrName)))
 		} else {
 			res = append(res, fmt.Sprintf("%s = uint16(%s.Get%s())", dst, src, CamelCaseProto(attrName)))
+		}
+	case "*string", "string", "*int64", "int64", "*bool":
+		if newVar {
+			res = append(res, fmt.Sprintf("%s := %s.%s", dst, src, CamelCaseProto(attrName)))
+		} else {
+			res = append(res, fmt.Sprintf("%s = %s.%s", dst, src, CamelCaseProto(attrName)))
 		}
 	default:
 		originalType, elementType := originalAndElementType(attrType)

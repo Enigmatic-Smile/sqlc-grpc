@@ -3,6 +3,7 @@ package templates
 import (
 	"embed"
 	"html/template"
+	"strings"
 
 	"github.com/walterwanderley/sqlc-grpc/converter"
 	"github.com/walterwanderley/sqlc-grpc/metadata"
@@ -17,4 +18,5 @@ var Funcs = template.FuncMap{
 	"UpperFirstCharacter": converter.UpperFirstCharacter,
 	"Input":               metadata.InputGrpc,
 	"Output":              metadata.OutputGrpc,
+	"HasSuffix":           strings.HasSuffix,
 }
