@@ -125,7 +125,7 @@ func BindToProto(src, dst, attrName, attrType string) []string {
 		res = append(res, fmt.Sprintf("%s.%s = %s.%s.String()", dst, CamelCaseProto(attrName), src, attrName))
 	case "pgtype.UUID":
 		res = append(res, fmt.Sprintf("if v, err := json.Marshal(%s.%s); err == nil {", src, attrName))
-		res = append(res, fmt.Sprintf("%s.%s = string(v)", dst, CamelCaseProto(attrName)))
+		res = append(res, fmt.Sprintf(`%s.%s = string(bytes.ReplaceAll(v, []byte("\""), []byte("")))`, dst, CamelCaseProto(attrName)))
 		res = append(res, "}")
 	case "int16":
 		res = append(res, fmt.Sprintf("%s.%s = int32(%s.%s)", dst, CamelCaseProto(attrName), src, attrName))
@@ -233,7 +233,7 @@ func BindToGo(src, dst, attrName, attrType string, newVar bool) []string {
 			res = append(res, fmt.Sprintf("var %s %s", dst, attrType))
 		}
 		res = append(res, fmt.Sprintf("if v := %s.Get%s(); v != \"\" {", src, CamelCaseProto(attrName)))
-		res = append(res, fmt.Sprintf("if err := json.Unmarshal([]byte(v), &%s); err != nil {", dst))
+		res = append(res, fmt.Sprintf(`if err := json.Unmarshal([]byte("\"" + v + "\""), &%s); err != nil {`, dst))
 		res = append(res, fmt.Sprintf("err = fmt.Errorf(\"invalid %s: %%s%%w\", err.Error(), validation.ErrUserInput)", attrName))
 		res = append(res, "return nil, err }")
 		res = append(res, "}")
